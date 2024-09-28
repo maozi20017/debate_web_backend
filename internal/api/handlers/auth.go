@@ -8,7 +8,7 @@ import (
 
 	"debate_web/internal/models"
 	"debate_web/internal/service"
-	"debate_web/pkg/utils"
+	"debate_web/internal/utils"
 )
 
 // AuthHandler 處理與認證相關的請求
@@ -48,7 +48,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	user := models.User{
 		Username: input.Username,
 		Password: string(hashedPassword),
-		Role:     models.UserRole(input.Role),
 	}
 
 	// 創建新用戶
@@ -83,7 +82,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// 生成 JWT token
-	token, err := utils.GenerateToken(user.ID, string(user.Role))
+	token, err := utils.GenerateToken(user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取token失敗"})
 		return

@@ -22,6 +22,7 @@ type Room struct {
 	TotalRounds     int
 	RoundDuration   int       // 每回合的持續時間（秒）
 	CurrentRoundEnd time.Time // 當前回合的結束時間
+	Spectators      []uint    `gorm:"type:integer[]"` // 觀眾的用戶 ID 列表
 }
 
 // RoomStatus 定義房間狀態的類型

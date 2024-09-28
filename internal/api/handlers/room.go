@@ -176,3 +176,29 @@ func (h *RoomHandler) GetRemainingTime(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"remaining_time": int(remainingTime.Seconds())})
 }
+
+func (h *RoomHandler) AddSpectator(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	userID, _ := c.Get("userID")
+
+	err := h.roomService.AddSpectator(uint(roomID), userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "成功加入為觀眾"})
+}
+
+func (h *RoomHandler) RemoveSpectator(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	userID, _ := c.Get("userID")
+
+	err := h.roomService.RemoveSpectator(uint(roomID), userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "成功離開觀眾席"})
+}

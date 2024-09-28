@@ -15,13 +15,12 @@ type Claims struct {
 }
 
 // GenerateToken 生成一個新的 JWT token
-func GenerateToken(userID uint, role string) (string, error) {
+func GenerateToken(userID uint) (string, error) {
 	nowTime := time.Now()
 	expireTime := nowTime.Add(24 * time.Hour)
 
 	claims := Claims{
 		UserID: userID,
-		Role:   role,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: expireTime.Unix(),
 			IssuedAt:  nowTime.Unix(),

@@ -6,11 +6,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"debate_web/internal/api"
+	"debate_web/internal/config"
 	"debate_web/internal/models"
 	"debate_web/internal/repository"
 	"debate_web/internal/service"
 	"debate_web/internal/storage"
-	"debate_web/pkg/config"
 )
 
 func main() {

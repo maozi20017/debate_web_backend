@@ -35,6 +35,8 @@ func SetupRoutes(r *gin.Engine, services *service.Services) {
 		protected.GET("/rooms/:id/messages", roomHandler.GetDebateMessages)      //取得辯論訊息
 		protected.POST("/rooms/:id/next-round", roomHandler.NextRound)           //下一回合
 		protected.GET("/rooms/:id/remaining-time", roomHandler.GetRemainingTime) //取得當前回合剩餘時間
+		protected.POST("/rooms/:id/spectators", roomHandler.AddSpectator)        //加入觀眾
+		protected.DELETE("/rooms/:id/spectators", roomHandler.RemoveSpectator)   //離開觀眾
 		// WebSocket 路由
 		protected.GET("/ws", wsHandler.HandleWebSocket) // 處理 WebSocket 連接
 

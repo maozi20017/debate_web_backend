@@ -75,12 +75,14 @@ func (s *RoomService) JoinRoom(roomID, userID uint, role string) error {
 			return errors.New("反方角色已被占用")
 		}
 		room.OpponentID = userID
+	case "spectator":
+		return s.AddSpectator(roomID, userID)
 	default:
 		return errors.New("無效的角色")
 	}
 
 	if room.ProponentID != 0 && room.OpponentID != 0 {
-		room.Status = "ready"
+		room.Status = models.RoomStatusReady
 	}
 
 	// 使用 repository 更新房間信息
@@ -179,4 +181,47 @@ func (s *RoomService) EndDebate(roomID uint) error {
 
 	s.wsManager.BroadcastSystemMessage(roomID, "辯論結束")
 	return nil
+}
+
+func (s *RoomService) AddSpectator(roomID, userID uint) error {
+	room, err := s.roomRepo.FindByID(roomID)
+	if err != nil {
+		return err
+	}
+
+	for _, spectatorID := range room.Spectators {
+		if spectatorID == userID {
+			return errors.New("用戶已經是觀眾")
+		}
+	}
+
+	room.Spectators = append(room.Spectators, userID)
+	err = s.roomRepo.Update(room)
+	if err != nil {
+		return err
+	}
+
+	s.wsManager.BroadcastSystemMessage(roomID, "新觀眾加入了房間")
+	return nil
+}
+
+func (s *RoomService) RemoveSpectator(roomID, userID uint) error {
+	room, err := s.roomRepo.FindByID(roomID)
+	if err != nil {
+		return err
+	}
+
+	for i, spectatorID := range room.Spectators {
+		if spectatorID == userID {
+			room.Spectators = append(room.Spectators[:i], room.Spectators[i+1:]...)
+			err = s.roomRepo.Update(room)
+			if err != nil {
+				return err
+			}
+			s.wsManager.BroadcastSystemMessage(roomID, "一位觀眾離開了房間")
+			return nil
+		}
+	}
+
+	return errors.New("用戶不是觀眾")
 }

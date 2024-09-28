@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"debate_web/pkg/utils"
+	"debate_web/internal/utils"
 	"net/http"
 	"strings"
 
@@ -36,8 +36,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 將用戶信息設置到上下文中
-		c.Set("userID", claims.UserID) // 修改這裡，從 "user_id" 改為 "userID"
-		c.Set("userRole", claims.Role) // 修改這裡，從 "user_role" 改為 "userRole"，如果需要的話
-		c.Next()                       // 繼續處理請求
+		c.Set("userID", claims.UserID)
+		c.Set("userRole", claims.Role)
+		c.Next() // 繼續處理請求
 	}
 }
