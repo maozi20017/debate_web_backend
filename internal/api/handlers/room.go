@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -153,4 +154,25 @@ func (h *RoomHandler) NextRound(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "進入下一回合"})
+}
+
+func (h *RoomHandler) GetRemainingTime(c *gin.Context) {
+	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間 ID"})
+		return
+	}
+
+	room, err := h.roomService.GetRoom(uint(roomID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "房間不存在"})
+		return
+	}
+
+	remainingTime := time.Until(room.CurrentRoundEnd)
+	if remainingTime < 0 {
+		remainingTime = 0
+	}
+
+	c.JSON(http.StatusOK, gin.H{"remaining_time": int(remainingTime.Seconds())})
 }

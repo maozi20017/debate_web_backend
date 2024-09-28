@@ -4,6 +4,7 @@ import (
 	"debate_web/internal/models"
 	"debate_web/internal/repository"
 	"errors"
+	"log"
 	"strconv"
 	"time"
 )
@@ -12,6 +13,7 @@ type RoomService struct {
 	roomRepo    repository.RoomRepository
 	wsManager   *WebSocketManager
 	messageRepo repository.DebateMessageRepository
+	timer       *time.Timer
 }
 
 func NewRoomService(roomRepo repository.RoomRepository, wsManager *WebSocketManager, messageRepo repository.DebateMessageRepository) *RoomService {
@@ -102,13 +104,29 @@ func (s *RoomService) StartDebate(roomID uint) error {
 	room.CurrentRound = 1
 	room.CurrentSpeaker = room.ProponentID // 假設正方先開始
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
-		return err
-	}
+	room.CurrentRoundEnd = time.Now().Add(time.Duration(room.RoundDuration) * time.Second)
+
+	s.startTimer(room)
 
 	s.wsManager.BroadcastSystemMessage(roomID, "辯論開始，第1回合，正方發言")
-	return nil
+	return s.roomRepo.Update(room)
+}
+
+func (s *RoomService) startTimer(room *models.Room) {
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+
+	s.timer = time.AfterFunc(time.Until(room.CurrentRoundEnd), func() {
+		s.handleRoundEnd(room.ID)
+	})
+}
+
+func (s *RoomService) handleRoundEnd(roomID uint) {
+	err := s.NextRound(roomID)
+	if err != nil {
+		log.Printf("結束回合錯誤: %v", err)
+	}
 }
 
 func (s *RoomService) NextRound(roomID uint) error {
@@ -133,6 +151,9 @@ func (s *RoomService) NextRound(roomID uint) error {
 		room.CurrentSpeaker = room.ProponentID
 		s.wsManager.BroadcastSystemMessage(roomID, "第"+strconv.Itoa(room.CurrentRound)+"回合，正方發言")
 	}
+
+	room.CurrentRoundEnd = time.Now().Add(time.Duration(room.RoundDuration) * time.Second)
+	s.startTimer(room)
 
 	return s.roomRepo.Update(room)
 }
