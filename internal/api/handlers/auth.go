@@ -31,7 +31,6 @@ type LoginInput struct {
 type RegisterInput struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
-	Role     string `json:"role" binding:"required,oneof=debater audience"`
 }
 
 // Register 處理用戶註冊
