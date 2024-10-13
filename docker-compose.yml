@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .  # 使用當前目錄的 Dockerfile 構建應用鏡像
+    ports:
+      - "8080:8080"  # 將容器的 8080 端口映射到主機的 8080 端口
+    depends_on:
+      - db  # 確保 db 服務在 app 服務之前啟動
+    environment:
+      - DB_HOST=db  # 設置數據庫主機名為 db 服務
+      - DB_USER=postgres  # 設置數據庫用戶名
+      - DB_PASSWORD=ghost8797  # 設置數據庫密碼
+      - DB_NAME=debate_system  # 設置數據庫名稱
+      - DB_PORT=5432  # 設置數據庫端口
+      - SERVER_ADDRESS=:8080  # 設置應用服務器地址
+    volumes:
+      - .:/app  # 將當前目錄掛載到容器的 /app 目錄
+    networks:
+      - debate-network  # 將 app 服務連接到 debate-network 網絡
+
+  db:
+    image: postgres  # 使用官方 PostgreSQL 鏡像
+    environment:
+      - POSTGRES_USER=postgres  # 設置 PostgreSQL 用戶名
+      - POSTGRES_PASSWORD=ghost8797  # 設置 PostgreSQL 密碼
+      - POSTGRES_DB=debate_system  # 設置 PostgreSQL 數據庫名稱
+    ports:
+      - "5432:5432"  # 將容器的 5432 端口映射到主機的 5432 端口
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # 將 PostgreSQL 數據持久化到 postgres_data 卷
+    networks:
+      - debate-network  # 將 db 服務連接到 debate-network 網絡
+
+volumes:
+  postgres_data:  # 定義 postgres_data 卷，用於持久化 PostgreSQL 數據
+
+networks:
+  debate-network:  # 定義 debate-network 網絡
+    driver: bridge  # 使用 bridge 驅動程序，這是 Docker 的默認網絡驅動程序

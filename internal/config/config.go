@@ -24,7 +24,7 @@ type DBConfig struct {
 func Load() (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("./pkg/config")
+	viper.AddConfigPath("./internal/config")
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err

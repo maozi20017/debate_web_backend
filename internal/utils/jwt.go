@@ -17,7 +17,7 @@ type Claims struct {
 // GenerateToken 生成一個新的 JWT token
 func GenerateToken(userID uint) (string, error) {
 	nowTime := time.Now()
-	expireTime := nowTime.Add(24 * time.Hour)
+	expireTime := nowTime.Add(240 * time.Hour)
 
 	claims := Claims{
 		UserID: userID,

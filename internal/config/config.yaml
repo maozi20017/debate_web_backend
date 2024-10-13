@@ -2,8 +2,8 @@ server:
   address: ":8080"
 
 db:
-  host: "localhost"
-  user: "your_username"
-  password: "your_password"
+  host: "db"
+  user: "postgres"
+  password: "ghost8797"
   name: "debate_system"
   port: 5432
