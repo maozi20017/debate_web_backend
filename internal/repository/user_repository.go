@@ -6,21 +6,20 @@ import (
 )
 
 type UserRepository interface {
-	Create(user *models.User) error
+	BaseRepository
 	FindByUsername(username string) (*models.User, error)
-	// 可以根據需要添加其他方法
 }
 
 type userRepository struct {
+	BaseRepository
 	db *storage.PostgresDB
 }
 
 func NewUserRepository(db *storage.PostgresDB) UserRepository {
-	return &userRepository{db: db}
-}
-
-func (r *userRepository) Create(user *models.User) error {
-	return r.db.Create(user).Error
+	return &userRepository{
+		BaseRepository: NewBaseRepository(db),
+		db:             db,
+	}
 }
 
 func (r *userRepository) FindByUsername(username string) (*models.User, error) {

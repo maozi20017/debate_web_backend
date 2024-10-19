@@ -11,10 +11,15 @@ type Services struct {
 }
 
 func NewServices(repos *repository.Repositories) *Services {
-	wsManager := NewWebSocketManager(repos.DebateMessage)
+	// 初始化 WebSocketManager
+	wsManager := NewWebSocketManager()
 
+	// 初始化 UserService
 	userService := NewUserService(repos.User)
-	roomService := NewRoomService(repos.Room, wsManager, repos.DebateMessage)
+
+	// 初始化 RoomService，傳入 WebSocketManager
+	roomService := NewRoomService(repos.Room, wsManager)
+
 	return &Services{
 		UserService:      userService,
 		RoomService:      roomService,

@@ -4,53 +4,24 @@ import (
 	"debate_web/internal/models"
 	"debate_web/internal/repository"
 	"errors"
-	"strconv"
+	"fmt"
 	"time"
 )
 
-// Room 代表一個辯論房間
-type Room struct {
-	ID              uint
-	Name            string
-	Description     string
-	Status          string
-	ProponentID     uint
-	OpponentID      uint
-	CurrentSpeaker  uint
-	CurrentRound    int
-	TotalRounds     int
-	RoundDuration   int
-	StartTime       time.Time
-	EndTime         time.Time
-	CurrentRoundEnd time.Time
-	Spectators      []uint
-}
-
 type RoomService struct {
-	roomRepo    repository.RoomRepository
-	wsManager   *WebSocketManager
-	messageRepo repository.DebateMessageRepository
+	roomRepo  repository.RoomRepository
+	wsManager *WebSocketManager
 }
 
-func NewRoomService(roomRepo repository.RoomRepository, wsManager *WebSocketManager, messageRepo repository.DebateMessageRepository) *RoomService {
+func NewRoomService(roomRepo repository.RoomRepository, wsManager *WebSocketManager) *RoomService {
 	return &RoomService{
-		roomRepo:    roomRepo,
-		wsManager:   wsManager,
-		messageRepo: messageRepo,
+		roomRepo:  roomRepo,
+		wsManager: wsManager,
 	}
 }
 
-func (s *RoomService) GetRoom(roomID uint) (*Room, error) {
-	roomModel, err := s.roomRepo.FindByID(roomID)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.convertModelToRoom(roomModel), nil
-}
-
-func (s *RoomService) CreateRoom(name, description string, maxDuration, totalRounds int) (*Room, error) {
-	roomModel := &models.Room{
+func (s *RoomService) CreateRoom(name, description string, maxDuration, totalRounds int) (*models.Room, error) {
+	room := &models.Room{
 		Name:        name,
 		Description: description,
 		Status:      models.RoomStatusWaiting,
@@ -58,12 +29,20 @@ func (s *RoomService) CreateRoom(name, description string, maxDuration, totalRou
 		MaxDuration: maxDuration,
 	}
 
-	err := s.roomRepo.Create(roomModel)
-	if err != nil {
-		return nil, err
+	if err := s.roomRepo.Create(room); err != nil {
+		return nil, fmt.Errorf("創建房間失敗: %w", err)
 	}
 
-	return s.convertModelToRoom(roomModel), nil
+	return room, nil
+}
+
+func (s *RoomService) GetRoom(roomID uint) (*models.Room, error) {
+	var room models.Room
+	err := s.roomRepo.FindByID(roomID, &room)
+	if err != nil {
+		return nil, fmt.Errorf("獲取房間失敗: %w", err)
+	}
+	return &room, nil
 }
 
 func (s *RoomService) JoinRoom(roomID, userID uint, role string) error {
@@ -72,7 +51,7 @@ func (s *RoomService) JoinRoom(roomID, userID uint, role string) error {
 		return err
 	}
 
-	if room.Status != "waiting" {
+	if room.Status != models.RoomStatusWaiting {
 		return errors.New("房間不開放加入")
 	}
 
@@ -88,16 +67,62 @@ func (s *RoomService) JoinRoom(roomID, userID uint, role string) error {
 		}
 		room.OpponentID = userID
 	case "spectator":
-		return s.AddSpectator(roomID, userID)
+		room.Spectators = append(room.Spectators, userID)
 	default:
 		return errors.New("無效的角色")
 	}
 
 	if room.ProponentID != 0 && room.OpponentID != 0 {
-		room.Status = "ready"
+		room.Status = models.RoomStatusReady
 	}
 
-	return s.updateRoom(room)
+	err = s.roomRepo.Update(room)
+	if err != nil {
+		return err
+	}
+
+	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("User %d joined as %s", userID, role))
+	return nil
+}
+
+func (s *RoomService) LeaveRoom(roomID, userID uint) error {
+	room, err := s.GetRoom(roomID)
+	if err != nil {
+		return err
+	}
+
+	switch userID {
+	case room.ProponentID:
+		room.ProponentID = 0
+	case room.OpponentID:
+		room.OpponentID = 0
+	default:
+		for i, spectatorID := range room.Spectators {
+			if spectatorID == userID {
+				room.Spectators = append(room.Spectators[:i], room.Spectators[i+1:]...)
+				break
+			}
+		}
+	}
+
+	if room.Status == models.RoomStatusOngoing && (room.ProponentID == 0 || room.OpponentID == 0) {
+		room.Status = models.RoomStatusFinished
+		room.EndTime = time.Now()
+	}
+
+	if room.ProponentID == 0 && room.OpponentID == 0 && len(room.Spectators) == 0 {
+		room.Status = models.RoomStatusWaiting
+	}
+
+	err = s.roomRepo.Update(room)
+	if err != nil {
+		return err
+	}
+
+	s.wsManager.DisconnectUser(roomID, userID)
+	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("User %d left the room", userID))
+
+	return nil
 }
 
 func (s *RoomService) StartDebate(roomID uint) error {
@@ -106,23 +131,24 @@ func (s *RoomService) StartDebate(roomID uint) error {
 		return err
 	}
 
-	if room.Status != "ready" {
+	if room.Status != models.RoomStatusReady {
 		return errors.New("房間尚未準備就緒")
 	}
 
-	room.Status = "ongoing"
-	room.StartTime = time.Now()
-	room.EndTime = room.StartTime.Add(time.Duration(room.TotalRounds*room.RoundDuration) * time.Second)
+	now := time.Now()
+	room.Status = models.RoomStatusOngoing
+	room.StartTime = now
+	room.EndTime = now.Add(time.Duration(room.MaxDuration) * time.Minute)
 	room.CurrentRound = 1
 	room.CurrentSpeaker = room.ProponentID
-	room.CurrentRoundEnd = time.Now().Add(time.Duration(room.RoundDuration) * time.Second)
+	room.CurrentRoundEnd = now.Add(time.Duration(room.RoundDuration) * time.Second)
 
-	err = s.updateRoom(room)
+	err = s.roomRepo.Update(room)
 	if err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, "辯論開始，第1回合，正方發言")
+	s.wsManager.BroadcastSystemMessage(roomID, "Debate started")
 	return nil
 }
 
@@ -132,7 +158,7 @@ func (s *RoomService) NextRound(roomID uint) error {
 		return err
 	}
 
-	if room.Status != "ongoing" {
+	if room.Status != models.RoomStatusOngoing {
 		return errors.New("辯論尚未開始或已結束")
 	}
 
@@ -143,15 +169,19 @@ func (s *RoomService) NextRound(roomID uint) error {
 
 	if room.CurrentSpeaker == room.ProponentID {
 		room.CurrentSpeaker = room.OpponentID
-		s.wsManager.BroadcastSystemMessage(roomID, "第"+strconv.Itoa(room.CurrentRound)+"回合，反方發言")
 	} else {
 		room.CurrentSpeaker = room.ProponentID
-		s.wsManager.BroadcastSystemMessage(roomID, "第"+strconv.Itoa(room.CurrentRound)+"回合，正方發言")
 	}
 
 	room.CurrentRoundEnd = time.Now().Add(time.Duration(room.RoundDuration) * time.Second)
 
-	return s.updateRoom(room)
+	err = s.roomRepo.Update(room)
+	if err != nil {
+		return err
+	}
+
+	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("Round %d started", room.CurrentRound))
+	return nil
 }
 
 func (s *RoomService) EndDebate(roomID uint) error {
@@ -160,75 +190,20 @@ func (s *RoomService) EndDebate(roomID uint) error {
 		return err
 	}
 
-	if room.Status != "ongoing" {
-		return errors.New("辯論尚未開始或已結束")
-	}
-
-	room.Status = "finished"
+	room.Status = models.RoomStatusFinished
 	room.EndTime = time.Now()
 
-	err = s.updateRoom(room)
+	err = s.roomRepo.Update(room)
 	if err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, "辯論結束")
+	s.wsManager.BroadcastSystemMessage(roomID, "Debate ended")
 	return nil
 }
 
-func (s *RoomService) AddSpectator(roomID, userID uint) error {
+func (s *RoomService) AddMessage(roomID, userID uint, content string) error {
 	room, err := s.GetRoom(roomID)
-	if err != nil {
-		return err
-	}
-
-	for _, spectatorID := range room.Spectators {
-		if spectatorID == userID {
-			return errors.New("用戶已經是觀眾")
-		}
-	}
-
-	room.Spectators = append(room.Spectators, userID)
-	err = s.updateRoom(room)
-	if err != nil {
-		return err
-	}
-
-	s.wsManager.BroadcastSystemMessage(roomID, "新觀眾加入了房間")
-	return nil
-}
-
-func (s *RoomService) RemoveSpectator(roomID, userID uint) error {
-	room, err := s.GetRoom(roomID)
-	if err != nil {
-		return err
-	}
-
-	for i, spectatorID := range room.Spectators {
-		if spectatorID == userID {
-			room.Spectators = append(room.Spectators[:i], room.Spectators[i+1:]...)
-			err = s.updateRoom(room)
-			if err != nil {
-				return err
-			}
-			s.wsManager.BroadcastSystemMessage(roomID, "一位觀眾離開了房間")
-			return nil
-		}
-	}
-
-	return errors.New("用戶不是觀眾")
-}
-
-func (s *RoomService) GetDebateMessages(roomID uint) ([]models.DebateMessage, error) {
-	room, err := s.roomRepo.FindByID(roomID)
-	if err != nil {
-		return nil, err
-	}
-	return room.Messages, nil
-}
-
-func (s *RoomService) AddMessage(roomID uint, userID uint, content string) error {
-	room, err := s.roomRepo.FindByID(roomID)
 	if err != nil {
 		return err
 	}
@@ -244,41 +219,10 @@ func (s *RoomService) AddMessage(roomID uint, userID uint, content string) error
 	return s.roomRepo.Update(room)
 }
 
-func (s *RoomService) convertModelToRoom(model *models.Room) *Room {
-	return &Room{
-		ID:              model.ID,
-		Name:            model.Name,
-		Description:     model.Description,
-		Status:          string(model.Status),
-		ProponentID:     model.ProponentID,
-		OpponentID:      model.OpponentID,
-		CurrentSpeaker:  model.CurrentSpeaker,
-		CurrentRound:    model.CurrentRound,
-		TotalRounds:     model.TotalRounds,
-		RoundDuration:   model.RoundDuration,
-		StartTime:       model.StartTime,
-		EndTime:         model.EndTime,
-		CurrentRoundEnd: model.CurrentRoundEnd,
-		Spectators:      model.Spectators,
+func (s *RoomService) GetDebateMessages(roomID uint) ([]models.DebateMessage, error) {
+	room, err := s.GetRoom(roomID)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func (s *RoomService) updateRoom(room *Room) error {
-	model := &models.Room{
-		Name:            room.Name,
-		Description:     room.Description,
-		Status:          models.RoomStatus(room.Status),
-		ProponentID:     room.ProponentID,
-		OpponentID:      room.OpponentID,
-		CurrentSpeaker:  room.CurrentSpeaker,
-		CurrentRound:    room.CurrentRound,
-		TotalRounds:     room.TotalRounds,
-		RoundDuration:   room.RoundDuration,
-		StartTime:       room.StartTime,
-		EndTime:         room.EndTime,
-		CurrentRoundEnd: room.CurrentRoundEnd,
-		Spectators:      room.Spectators,
-	}
-	model.ID = room.ID
-	return s.roomRepo.Update(model)
+	return room.Messages, nil
 }
