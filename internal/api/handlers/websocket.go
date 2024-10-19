@@ -46,29 +46,29 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	roomID, err := strconv.ParseUint(c.Query("room_id"), 10, 32)
 	if err != nil {
 		conn.Close()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid room ID"})
 		return
 	}
 
 	// 從上下文中獲取用戶 ID
-	userID, _ := c.Get("userID")
+	userID, exists := c.Get("userID")
+	if !exists {
+		conn.Close()
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 	userIDUint := userID.(uint)
 
 	// 獲取房間信息
 	room, err := h.roomService.GetRoom(uint(roomID))
 	if err != nil {
 		conn.Close()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Room not found"})
 		return
 	}
 
 	// 確定用戶在房間中的角色
-	var role string
-	if room.ProponentID == userIDUint {
-		role = "proponent"
-	} else if room.OpponentID == userIDUint {
-		role = "opponent"
-	} else {
-		role = "spectator"
-	}
+	role := h.determineUserRole(room, userIDUint)
 
 	// 創建客戶端
 	client := &service.Client{
@@ -78,9 +78,21 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		Role:   role,
 	}
 
-	// 註冊客戶端
-	h.wsManager.RegisterClient(client)
+	// 處理客戶端連接
+	go h.wsManager.HandleClient(client)
 
-	// 開始處理客戶端消息
-	go h.wsManager.HandleMessages(client)
+	// 通知房間有新用戶加入
+	h.wsManager.BroadcastSystemMessage(uint(roomID), "New user joined: "+role)
+}
+
+// determineUserRole 確定用戶在房間中的角色
+func (h *WebSocketHandler) determineUserRole(room *service.Room, userID uint) string {
+	switch userID {
+	case room.ProponentID:
+		return "proponent"
+	case room.OpponentID:
+		return "opponent"
+	default:
+		return "spectator"
+	}
 }

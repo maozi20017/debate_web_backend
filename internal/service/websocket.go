@@ -13,103 +13,44 @@ import (
 
 // Client 表示一個 WebSocket 客戶端連接
 type Client struct {
-	Conn   *websocket.Conn // WebSocket 連接
-	UserID uint            // 用戶 ID
-	RoomID uint            // 房間 ID
-	Role   string          // 用戶角色
+	Conn   *websocket.Conn
+	UserID uint
+	RoomID uint
+	Role   string
 }
 
 // Message 定義了 WebSocket 消息的結構
 type Message struct {
-	Type      string      `json:"type"`      // 消息類型，例如 "chat", "system", "join", "leave" 等
-	Content   string      `json:"content"`   // 消息內容
-	UserID    uint        `json:"user_id"`   // 發送消息的用戶 ID
-	RoomID    uint        `json:"room_id"`   // 消息所屬的房間 ID
-	Role      string      `json:"role"`      // 發送消息的用戶角色
-	Data      interface{} `json:"data"`      // 可選的附加數據，用於特定類型的消息
-	Timestamp time.Time   `json:"timestamp"` // 消息發送時間戳
+	Type      string      `json:"type"`
+	Content   string      `json:"content"`
+	UserID    uint        `json:"user_id"`
+	RoomID    uint        `json:"room_id"`
+	Role      string      `json:"role"`
+	Data      interface{} `json:"data"`
+	Timestamp time.Time   `json:"timestamp"`
 }
 
 // WebSocketManager 管理所有 WebSocket 連接和消息廣播
 type WebSocketManager struct {
-	clients     map[*Client]bool                   // 存儲所有活躍的客戶端連接
-	broadcast   chan Message                       // 用於廣播消息的通道
-	register    chan *Client                       // 用於註冊新客戶端的通道
-	unregister  chan *Client                       // 用於註銷客戶端的通道
-	mutex       sync.Mutex                         // 用於保護對 clients map 的併發訪問
-	messageRepo repository.DebateMessageRepository // 用於持久化消息的 repository
+	rooms       map[uint]map[*Client]bool
+	messageRepo repository.DebateMessageRepository
+	mu          sync.RWMutex
 }
 
 // NewWebSocketManager 創建一個新的 WebSocketManager 實例
 func NewWebSocketManager(messageRepo repository.DebateMessageRepository) *WebSocketManager {
 	return &WebSocketManager{
-		clients:     make(map[*Client]bool),
-		broadcast:   make(chan Message),
-		register:    make(chan *Client),
-		unregister:  make(chan *Client),
+		rooms:       make(map[uint]map[*Client]bool),
 		messageRepo: messageRepo,
 	}
 }
 
-// Run 啟動 WebSocket 管理器，處理客戶端的註冊、註銷和消息廣播
-func (manager *WebSocketManager) Run() {
-	for {
-		select {
-		case client := <-manager.register:
-			// 註冊新客戶端
-			manager.mutex.Lock()
-			manager.clients[client] = true
-			manager.mutex.Unlock()
-		case client := <-manager.unregister:
-			// 註銷客戶端
-			if _, ok := manager.clients[client]; ok {
-				manager.mutex.Lock()
-				delete(manager.clients, client)
-				manager.mutex.Unlock()
-				client.Conn.Close()
-			}
-		case message := <-manager.broadcast:
-			// 廣播消息給所有相關的客戶端
-			for client := range manager.clients {
-				if client.RoomID == message.RoomID {
-					err := client.Conn.WriteJSON(message)
-					if err != nil {
-						log.Printf("error: %v", err)
-						client.Conn.Close()
-						manager.mutex.Lock()
-						delete(manager.clients, client)
-						manager.mutex.Unlock()
-					}
-				}
-			}
-		}
-	}
-}
-
-// RegisterClient 註冊一個新的客戶端
-func (manager *WebSocketManager) RegisterClient(client *Client) {
-	manager.register <- client
-}
-
-// UnregisterClient 註銷一個客戶端
-func (manager *WebSocketManager) UnregisterClient(client *Client) {
-	manager.unregister <- client
-}
-
-// BroadcastMessage 廣播消息到所有相關的客戶端
-func (manager *WebSocketManager) BroadcastMessage(message Message) {
-	manager.broadcast <- message
-}
-
-// HandleMessages 處理來自客戶端的消息
-func (manager *WebSocketManager) HandleMessages(client *Client) {
-	defer func() {
-		manager.UnregisterClient(client)
-		client.Conn.Close()
-	}()
+// HandleClient 處理單個客戶端的連接
+func (manager *WebSocketManager) HandleClient(client *Client) {
+	manager.addClientToRoom(client)
+	defer manager.removeClientFromRoom(client)
 
 	for {
-		// 讀取客戶端發送的消息
 		_, msg, err := client.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -117,39 +58,54 @@ func (manager *WebSocketManager) HandleMessages(client *Client) {
 			}
 			break
 		}
-
-		// 解析消息
-		var message Message
-		if err := json.Unmarshal(msg, &message); err != nil {
-			log.Printf("error: %v", err)
-			continue
-		}
-
-		// 保存消息到數據庫
-		dbMessage := &models.DebateMessage{
-			RoomID:    client.RoomID,
-			UserID:    client.UserID,
-			Content:   message.Content,
-			Timestamp: time.Now(),
-		}
-		if err := manager.messageRepo.Create(dbMessage); err != nil {
-			log.Printf("Error saving message to database: %v", err)
-		}
-
-		// 廣播消息給其他客戶端
-		manager.BroadcastMessage(message)
+		manager.ProcessMessage(client, msg)
 	}
+}
+
+// ProcessMessage 處理來自客戶端的消息
+func (manager *WebSocketManager) ProcessMessage(client *Client, msg []byte) {
+	var message Message
+	if err := json.Unmarshal(msg, &message); err != nil {
+		log.Printf("error parsing message: %v", err)
+		return
+	}
+
+	message.UserID = client.UserID
+	message.RoomID = client.RoomID
+	message.Role = client.Role
+	message.Timestamp = time.Now()
+
+	// 保存消息到數據庫
+	dbMessage := &models.DebateMessage{
+		RoomID:    message.RoomID,
+		UserID:    message.UserID,
+		Content:   message.Content,
+		Timestamp: message.Timestamp,
+	}
+	if err := manager.messageRepo.Create(dbMessage); err != nil {
+		log.Printf("Error saving message to database: %v", err)
+	}
+
+	// 廣播消息給房間內的其他客戶端
+	manager.BroadcastToRoom(message.RoomID, message)
 }
 
 // BroadcastToRoom 向特定房間的所有客戶端廣播消息
 func (manager *WebSocketManager) BroadcastToRoom(roomID uint, message Message) {
-	for client := range manager.clients {
-		if client.RoomID == roomID {
-			err := client.Conn.WriteJSON(message)
-			if err != nil {
-				log.Printf("Error broadcasting to client: %v", err)
-				manager.UnregisterClient(client)
-			}
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+
+	clients, ok := manager.rooms[roomID]
+	if !ok {
+		return
+	}
+
+	for client := range clients {
+		err := client.Conn.WriteJSON(message)
+		if err != nil {
+			log.Printf("error broadcasting message: %v", err)
+			client.Conn.Close()
+			delete(clients, client)
 		}
 	}
 }
@@ -163,4 +119,29 @@ func (manager *WebSocketManager) BroadcastSystemMessage(roomID uint, content str
 		Timestamp: time.Now(),
 	}
 	manager.BroadcastToRoom(roomID, message)
+}
+
+// addClientToRoom 將客戶端添加到指定房間
+func (manager *WebSocketManager) addClientToRoom(client *Client) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	if _, ok := manager.rooms[client.RoomID]; !ok {
+		manager.rooms[client.RoomID] = make(map[*Client]bool)
+	}
+	manager.rooms[client.RoomID][client] = true
+}
+
+// removeClientFromRoom 將客戶端從指定房間移除
+func (manager *WebSocketManager) removeClientFromRoom(client *Client) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	if clients, ok := manager.rooms[client.RoomID]; ok {
+		delete(clients, client)
+		if len(clients) == 0 {
+			delete(manager.rooms, client.RoomID)
+		}
+	}
+	client.Conn.Close()
 }
