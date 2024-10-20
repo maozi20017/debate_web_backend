@@ -59,16 +59,16 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, room)
 }
 
-// JoinRoom 處理加入房間的請求
+// JoinRoom 處理加入房間的 POST 請求
 func (h *RoomHandler) JoinRoom(c *gin.Context) {
 	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在的房間ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間ID"})
 		return
 	}
 
 	userID, _ := c.Get("userID")
-	role := c.Query("role")
+	role := c.PostForm("role") // 從 POST 表單中獲取 role
 
 	err = h.roomService.JoinRoom(uint(roomID), userID.(uint), role)
 	if err != nil {

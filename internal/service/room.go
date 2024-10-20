@@ -5,18 +5,22 @@ import (
 	"debate_web/internal/repository"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 type RoomService struct {
-	roomRepo  repository.RoomRepository
-	wsManager *WebSocketManager
+	roomRepo        repository.RoomRepository
+	wsManager       *WebSocketManager
+	messageBuffer   map[uint][]models.Message
+	messageBufferMu sync.Mutex
 }
 
 func NewRoomService(roomRepo repository.RoomRepository, wsManager *WebSocketManager) *RoomService {
 	return &RoomService{
-		roomRepo:  roomRepo,
-		wsManager: wsManager,
+		roomRepo:      roomRepo,
+		wsManager:     wsManager,
+		messageBuffer: make(map[uint][]models.Message),
 	}
 }
 
@@ -76,12 +80,12 @@ func (s *RoomService) JoinRoom(roomID, userID uint, role string) error {
 		room.Status = models.RoomStatusReady
 	}
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
+	if err := s.roomRepo.Update(room); err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("User %d joined as %s", userID, role))
+	systemMsg := models.NewSystemMessage(roomID, fmt.Sprintf("User %d joined as %s", userID, role))
+	s.wsManager.BroadcastToRoom(roomID, systemMsg.ToWebSocketMessage())
 	return nil
 }
 
@@ -114,13 +118,13 @@ func (s *RoomService) LeaveRoom(roomID, userID uint) error {
 		room.Status = models.RoomStatusWaiting
 	}
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
+	if err := s.roomRepo.Update(room); err != nil {
 		return err
 	}
 
 	s.wsManager.DisconnectUser(roomID, userID)
-	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("User %d left the room", userID))
+	systemMsg := models.NewSystemMessage(roomID, fmt.Sprintf("User %d left the room", userID))
+	s.wsManager.BroadcastToRoom(roomID, systemMsg.ToWebSocketMessage())
 
 	return nil
 }
@@ -143,12 +147,12 @@ func (s *RoomService) StartDebate(roomID uint) error {
 	room.CurrentSpeaker = room.ProponentID
 	room.CurrentRoundEnd = now.Add(time.Duration(room.RoundDuration) * time.Second)
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
+	if err := s.roomRepo.Update(room); err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, "Debate started")
+	systemMsg := models.NewSystemMessage(roomID, "Debate started")
+	s.wsManager.BroadcastToRoom(roomID, systemMsg.ToWebSocketMessage())
 	return nil
 }
 
@@ -175,12 +179,12 @@ func (s *RoomService) NextRound(roomID uint) error {
 
 	room.CurrentRoundEnd = time.Now().Add(time.Duration(room.RoundDuration) * time.Second)
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
+	if err := s.roomRepo.Update(room); err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, fmt.Sprintf("Round %d started", room.CurrentRound))
+	systemMsg := models.NewSystemMessage(roomID, fmt.Sprintf("Round %d started", room.CurrentRound))
+	s.wsManager.BroadcastToRoom(roomID, systemMsg.ToWebSocketMessage())
 	return nil
 }
 
@@ -193,36 +197,49 @@ func (s *RoomService) EndDebate(roomID uint) error {
 	room.Status = models.RoomStatusFinished
 	room.EndTime = time.Now()
 
-	err = s.roomRepo.Update(room)
-	if err != nil {
+	// 將緩存的消息添加到房間
+	s.messageBufferMu.Lock()
+	if messages, ok := s.messageBuffer[roomID]; ok {
+		room.Messages = append(room.Messages, messages...)
+		delete(s.messageBuffer, roomID)
+	}
+	s.messageBufferMu.Unlock()
+
+	// 更新房間狀態和消息
+	if err := s.roomRepo.Update(room); err != nil {
 		return err
 	}
 
-	s.wsManager.BroadcastSystemMessage(roomID, "Debate ended")
+	systemMsg := models.NewSystemMessage(roomID, "Debate ended")
+	s.wsManager.BroadcastToRoom(roomID, systemMsg.ToWebSocketMessage())
 	return nil
 }
 
-func (s *RoomService) AddMessage(roomID, userID uint, content string) error {
-	room, err := s.GetRoom(roomID)
-	if err != nil {
-		return err
-	}
+func (s *RoomService) AddMessage(roomID, userID uint, content, role string) error {
+	message := models.NewDebateMessage(userID, roomID, content, role)
 
-	message := models.DebateMessage{
-		RoomID:    roomID,
-		UserID:    userID,
-		Content:   content,
-		Timestamp: time.Now(),
-	}
+	s.messageBufferMu.Lock()
+	s.messageBuffer[roomID] = append(s.messageBuffer[roomID], *message)
+	s.messageBufferMu.Unlock()
 
-	room.Messages = append(room.Messages, message)
-	return s.roomRepo.Update(room)
+	// 廣播消息到 WebSocket
+	s.wsManager.BroadcastToRoom(roomID, message.ToWebSocketMessage())
+
+	return nil
 }
 
-func (s *RoomService) GetDebateMessages(roomID uint) ([]models.DebateMessage, error) {
+func (s *RoomService) GetDebateMessages(roomID uint) ([]models.Message, error) {
 	room, err := s.GetRoom(roomID)
 	if err != nil {
 		return nil, err
 	}
-	return room.Messages, nil
+
+	s.messageBufferMu.Lock()
+	bufferedMessages := s.messageBuffer[roomID]
+	s.messageBufferMu.Unlock()
+
+	// 合併數據庫中的消息和緩存中的消息
+	allMessages := append(room.Messages, bufferedMessages...)
+
+	return allMessages, nil
 }

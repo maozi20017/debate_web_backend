@@ -1,10 +1,10 @@
 package service
 
 import (
+	"debate_web/internal/models"
 	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -14,16 +14,6 @@ type Client struct {
 	UserID uint
 	RoomID uint
 	Role   string
-}
-
-type Message struct {
-	Type      string      `json:"type"`
-	Content   string      `json:"content"`
-	UserID    uint        `json:"user_id"`
-	RoomID    uint        `json:"room_id"`
-	Role      string      `json:"role"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
 }
 
 type WebSocketManager struct {
@@ -77,7 +67,7 @@ func (manager *WebSocketManager) removeClient(client *Client) {
 }
 
 func (manager *WebSocketManager) processMessage(client *Client, msg []byte) {
-	var message Message
+	var message models.Message
 	if err := json.Unmarshal(msg, &message); err != nil {
 		log.Printf("error parsing message: %v", err)
 		return
@@ -86,12 +76,11 @@ func (manager *WebSocketManager) processMessage(client *Client, msg []byte) {
 	message.UserID = client.UserID
 	message.RoomID = client.RoomID
 	message.Role = client.Role
-	message.Timestamp = time.Now()
 
-	manager.broadcastToRoom(message.RoomID, message)
+	manager.BroadcastToRoom(message.RoomID, message.ToWebSocketMessage())
 }
 
-func (manager *WebSocketManager) broadcastToRoom(roomID uint, message Message) {
+func (manager *WebSocketManager) BroadcastToRoom(roomID uint, message map[string]interface{}) {
 	manager.clientsMux.RLock()
 	defer manager.clientsMux.RUnlock()
 
@@ -108,13 +97,8 @@ func (manager *WebSocketManager) broadcastToRoom(roomID uint, message Message) {
 }
 
 func (manager *WebSocketManager) BroadcastSystemMessage(roomID uint, content string) {
-	message := Message{
-		Type:      "system",
-		Content:   content,
-		RoomID:    roomID,
-		Timestamp: time.Now(),
-	}
-	manager.broadcastToRoom(roomID, message)
+	message := models.NewSystemMessage(roomID, content)
+	manager.BroadcastToRoom(roomID, message.ToWebSocketMessage())
 }
 
 func (manager *WebSocketManager) DisconnectUser(roomID, userID uint) {
