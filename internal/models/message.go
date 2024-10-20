@@ -20,8 +20,8 @@ type Message struct {
 }
 
 // NewDebateMessage 創建一個新的辯論消息
-func NewDebateMessage(userID, roomID uint, content, role string) *Message {
-	return &Message{
+func NewDebateMessage(userID, roomID uint, content, role string) Message {
+	return Message{
 		Type:      "debate_message",
 		Content:   content,
 		UserID:    userID,
@@ -32,25 +32,11 @@ func NewDebateMessage(userID, roomID uint, content, role string) *Message {
 }
 
 // NewSystemMessage 創建一個新的系統消息
-func NewSystemMessage(roomID uint, content string) *Message {
-	return &Message{
+func NewSystemMessage(roomID uint, content string) Message {
+	return Message{
 		Type:      "system_message",
 		Content:   content,
 		RoomID:    roomID,
 		Timestamp: time.Now(),
-	}
-}
-
-// ToWebSocketMessage 將消息轉換為適合 WebSocket 傳輸的格式
-func (m *Message) ToWebSocketMessage() map[string]interface{} {
-	return map[string]interface{}{
-		"id":         m.ID,
-		"type":       m.Type,
-		"content":    m.Content,
-		"user_id":    m.UserID,
-		"room_id":    m.RoomID,
-		"role":       m.Role,
-		"timestamp":  m.Timestamp,
-		"extra_data": m.ExtraData,
 	}
 }

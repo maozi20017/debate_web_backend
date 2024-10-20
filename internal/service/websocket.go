@@ -77,10 +77,10 @@ func (manager *WebSocketManager) processMessage(client *Client, msg []byte) {
 	message.RoomID = client.RoomID
 	message.Role = client.Role
 
-	manager.BroadcastToRoom(message.RoomID, message.ToWebSocketMessage())
+	manager.BroadcastToRoom(message.RoomID, message)
 }
 
-func (manager *WebSocketManager) BroadcastToRoom(roomID uint, message map[string]interface{}) {
+func (manager *WebSocketManager) BroadcastToRoom(roomID uint, message models.Message) {
 	manager.clientsMux.RLock()
 	defer manager.clientsMux.RUnlock()
 
@@ -98,7 +98,7 @@ func (manager *WebSocketManager) BroadcastToRoom(roomID uint, message map[string
 
 func (manager *WebSocketManager) BroadcastSystemMessage(roomID uint, content string) {
 	message := models.NewSystemMessage(roomID, content)
-	manager.BroadcastToRoom(roomID, message.ToWebSocketMessage())
+	manager.BroadcastToRoom(roomID, message)
 }
 
 func (manager *WebSocketManager) DisconnectUser(roomID, userID uint) {

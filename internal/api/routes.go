@@ -30,6 +30,7 @@ func SetupRoutes(r *gin.Engine, services *service.Services) {
 		protected.POST("/rooms", roomHandler.CreateRoom)                         // 創建新房間
 		protected.GET("/rooms/:id", roomHandler.GetRoom)                         // 獲取特定房間信息
 		protected.POST("/rooms/:id/join", roomHandler.JoinRoom)                  // 加入特定房間
+		protected.POST("/rooms/:id/leave", roomHandler.LeaveRoom)                // 離開特定房間
 		protected.POST("/rooms/:id/start", roomHandler.StartDebate)              // 開始辯論
 		protected.POST("/rooms/:id/end", roomHandler.EndDebate)                  // 結束辯論
 		protected.GET("/rooms/:id/messages", roomHandler.GetDebateMessages)      //取得辯論訊息
