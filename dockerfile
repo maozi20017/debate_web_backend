@@ -1,5 +1,5 @@
 # 使用官方 Go 鏡像作為基礎鏡像
-FROM golang:1.22
+FROM golang:1.23.2
 
 # 設置工作目錄
 WORKDIR /app
