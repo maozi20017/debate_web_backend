@@ -9,21 +9,14 @@ import (
 // Room 表示一個辯論房間
 type Room struct {
 	gorm.Model
-	Name            string
-	Description     string
-	Status          RoomStatus
-	ProponentID     uint
-	OpponentID      uint
-	CurrentSpeaker  uint
-	StartTime       time.Time
-	EndTime         time.Time
-	MaxDuration     int // 以分鐘為單位
-	CurrentRound    int
-	TotalRounds     int
-	RoundDuration   int       // 每回合的持續時間（秒）
-	CurrentRoundEnd time.Time // 當前回合的結束時間
-	Spectators      []uint    `gorm:"type:integer[]"` // 觀眾的用戶 ID 列表
-	Messages        []Message `gorm:"foreignKey:RoomID"`
+	Name        string
+	Status      RoomStatus // "waiting", "ongoing", "finished"
+	ProponentID uint
+	OpponentID  uint
+	StartTime   time.Time
+	EndTime     time.Time
+	Messages    []Message
+	Spectators  []uint
 }
 
 // RoomStatus 定義房間狀態的類型

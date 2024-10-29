@@ -8,17 +8,18 @@ import (
 
 	"debate_web/internal/models"
 	"debate_web/internal/service"
-	"debate_web/internal/utils"
 )
 
-// AuthHandler 處理與認證相關的請求
+// AuthHandler 處理認證相關的請求
 type AuthHandler struct {
 	userService *service.UserService
 }
 
-// NewAuthHandler 創建一個新的 AuthHandler 實例
+// NewAuthHandler 創建新的認證處理器
 func NewAuthHandler(userService *service.UserService) *AuthHandler {
-	return &AuthHandler{userService: userService}
+	return &AuthHandler{
+		userService: userService,
+	}
 }
 
 // LoginInput 定義登入請求的結構
@@ -29,63 +30,104 @@ type LoginInput struct {
 
 // RegisterInput 定義註冊請求的結構
 type RegisterInput struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username string `json:"username" binding:"required,min=3,max=32"`
+	Password string `json:"password" binding:"required,min=6,max=32"`
 }
 
 // Register 處理用戶註冊
 func (h *AuthHandler) Register(c *gin.Context) {
 	var input RegisterInput
-	// 解析並驗證請求體
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "資料格式不正確",
+			"details": err.Error(),
+		})
 		return
 	}
 
-	// 對密碼進行加密
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	user := models.User{
+	// 檢查用戶名是否已存在
+	exist, _ := h.userService.CheckUserExists(input.Username)
+	if exist {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "用戶名已被使用",
+		})
+		return
+	}
+
+	// 密碼加密
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "密碼加密失敗",
+		})
+		return
+	}
+
+	// 創建用戶
+	user := &models.User{
 		Username: input.Username,
 		Password: string(hashedPassword),
 	}
 
-	// 創建新用戶
-	if err := h.userService.CreateUser(&user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "創建使用者失敗"})
+	if err := h.userService.CreateUser(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "創建用戶失敗",
+		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "使用者註冊成功"})
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "註冊成功",
+		"user": gin.H{
+			"id":       user.ID,
+			"username": user.Username,
+		},
+	})
 }
 
 // Login 處理用戶登入
 func (h *AuthHandler) Login(c *gin.Context) {
 	var input LoginInput
-	// 解析並驗證請求體
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "資料格式不正確",
+			"details": err.Error(),
+		})
 		return
 	}
 
-	// 檢查用戶是否存在
+	// 查找用戶
 	user, err := h.userService.GetUserByUsername(input.Username)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "用戶名或密碼錯誤",
+		})
 		return
 	}
 
 	// 驗證密碼
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "用戶名或密碼錯誤",
+		})
 		return
 	}
 
 	// 生成 JWT token
-	token, err := utils.GenerateToken(user.ID)
+	token, err := h.userService.GenerateToken(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "獲取token失敗"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "生成token失敗",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "登入成功",
+		"token":   token,
+		"user": gin.H{
+			"id":       user.ID,
+			"username": user.Username,
+		},
+	})
 }

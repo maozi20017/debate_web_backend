@@ -1,212 +1,131 @@
 package handlers
 
 import (
+	"debate_web/internal/models"
+	"debate_web/internal/service"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"debate_web/internal/service"
 )
 
-// RoomHandler 處理與辯論房間相關的請求
 type RoomHandler struct {
 	roomService *service.RoomService
 }
 
-// NewRoomHandler 創建一個新的 RoomHandler 實例
 func NewRoomHandler(roomService *service.RoomService) *RoomHandler {
 	return &RoomHandler{roomService: roomService}
 }
 
-// CreateRoom 處理創建新房間的請求
 func (h *RoomHandler) CreateRoom(c *gin.Context) {
-	var input struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-		MaxDuration int    `json:"max_duration" binding:"required"`
-		TotalRounds int    `json:"total_rounds" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
+	var room models.Room
+	if err := c.ShouldBindJSON(&room); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	room, err := h.roomService.CreateRoom(input.Name, input.Description, input.MaxDuration, input.TotalRounds)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "創建房間失敗"})
+	if err := h.roomService.CreateRoom(&room); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, room)
+	c.JSON(201, room)
 }
 
-// GetRoom 處理獲取房間訊息的請求
-func (h *RoomHandler) GetRoom(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在的房間ID"})
-		return
-	}
-
-	room, err := h.roomService.GetRoom(uint(roomID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "房間不存在"})
-		return
-	}
-
-	c.JSON(http.StatusOK, room)
-}
-
-// JoinRoom 處理加入房間的 POST 請求
 func (h *RoomHandler) JoinRoom(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間ID"})
-		return
-	}
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	userID := c.GetUint("userID")
+	role := c.PostForm("role")
 
-	userID, _ := c.Get("userID")
-	role := c.PostForm("role") // 從 POST 表單中獲取 role
-
-	err = h.roomService.JoinRoom(uint(roomID), userID.(uint), role)
+	err := h.roomService.JoinRoom(uint(roomID), userID, role)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "成功加入房間"})
 }
 
-// LeaveRoom 處理離開房間的請求
-func (h *RoomHandler) LeaveRoom(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+// GetRoom 獲取特定房間資訊
+func (h *RoomHandler) GetRoom(c *gin.Context) {
+	// 從路徑參數獲取房間ID
+	roomID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在的房間ID"})
-		return
-	}
-
-	userID, _ := c.Get("userID")
-
-	err = h.roomService.LeaveRoom(uint(roomID), userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "成功離開房間"})
-}
-
-// StartDebate 處理開始辯論的請求
-func (h *RoomHandler) StartDebate(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在的房間ID"})
-		return
-	}
-
-	err = h.roomService.StartDebate(uint(roomID))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "辯論開始"})
-}
-
-// EndDebate 處理結束辯論的請求
-func (h *RoomHandler) EndDebate(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在的房間ID"})
-		return
-	}
-
-	err = h.roomService.EndDebate(uint(roomID))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "辯論結束"})
-}
-
-func (h *RoomHandler) GetDebateMessages(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間 ID"})
-		return
-	}
-
-	messages, err := h.roomService.GetDebateMessages(uint(roomID))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "無法搜尋辯論訊息"})
-		return
-	}
-
-	c.JSON(http.StatusOK, messages)
-}
-
-func (h *RoomHandler) NextRound(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間 ID"})
-		return
-	}
-
-	err = h.roomService.NextRound(uint(roomID))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "進入下一回合"})
-}
-
-func (h *RoomHandler) GetRemainingTime(c *gin.Context) {
-	roomID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "無效的房間ID",
+		})
 		return
 	}
 
 	room, err := h.roomService.GetRoom(uint(roomID))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "房間不存在"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "找不到該房間",
+		})
 		return
 	}
 
-	remainingTime := time.Until(room.CurrentRoundEnd)
-	if remainingTime < 0 {
-		remainingTime = 0
+	// 根據用戶角色返回適當的資訊
+	response := gin.H{
+		"id":           room.ID,
+		"name":         room.Name,
+		"status":       room.Status,
+		"created_at":   room.CreatedAt,
+		"proponent_id": room.ProponentID,
+		"opponent_id":  room.OpponentID,
+		"spectators":   room.Spectators,
 	}
 
-	c.JSON(http.StatusOK, gin.H{"remaining_time": int(remainingTime.Seconds())})
+	c.JSON(http.StatusOK, response)
 }
 
-func (h *RoomHandler) AddSpectator(c *gin.Context) {
-	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
-	userID, _ := c.Get("userID")
-
-	err := h.roomService.JoinRoom(uint(roomID), userID.(uint), "spectator")
+// LeaveRoom 離開房間
+func (h *RoomHandler) LeaveRoom(c *gin.Context) {
+	// 從路徑參數獲取房間ID
+	roomID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "無效的房間ID",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "成功加入為觀眾"})
+	// 獲取當前用戶ID
+	userID := c.GetUint("userID")
+
+	// 調用服務層的離開房間方法
+	err = h.roomService.LeaveRoom(uint(roomID), userID)
+	if err != nil {
+		// 根據錯誤類型返回適當的狀態碼和訊息
+		switch err.Error() {
+		case "房間不存在":
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case "用戶不在此房間中":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case "辯論進行中，無法離開":
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "離開房間失敗"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "成功離開房間",
+	})
 }
 
-func (h *RoomHandler) RemoveSpectator(c *gin.Context) {
-	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
-	userID, _ := c.Get("userID")
-
-	err := h.roomService.LeaveRoom(uint(roomID), userID.(uint))
+// ListRooms 獲取房間列表
+func (h *RoomHandler) ListRooms(c *gin.Context) {
+	rooms, err := h.roomService.ListRooms()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "獲取房間列表失敗",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "成功離開觀眾席"})
+	c.JSON(http.StatusOK, gin.H{
+		"rooms": rooms,
+	})
 }

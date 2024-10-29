@@ -1,45 +1,62 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"debate_web/internal/api/handlers"
 	"debate_web/internal/middleware"
 	"debate_web/internal/service"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
-// SetupRoutes 設置所有的路由
 func SetupRoutes(r *gin.Engine, services *service.Services) {
-	// 初始化處理器
-	authHandler := handlers.NewAuthHandler(services.UserService)
-	roomHandler := handlers.NewRoomHandler(services.RoomService)
-	wsHandler := handlers.NewWebSocketHandler(services.WebSocketManager, services.RoomService)
+	// 初始化 handlers
+	authHandler := handlers.NewAuthHandler(services.User)
+	roomHandler := handlers.NewRoomHandler(services.Room)
+	wsHandler := handlers.NewWebSocketHandler(services.WebSocket, services.Room)
 
-	// 公開路由組，不需要認證
-	public := r.Group("/api")
+	// API 路由群組
+	api := r.Group("/api")
+
+	// 處理 404 錯誤
+	r.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "找不到該路徑",
+		})
+	})
+
+	// 公開路由
 	{
-		public.POST("/register", authHandler.Register) // 用戶註冊
-		public.POST("/login", authHandler.Login)       // 用戶登入
+		// 用戶認證相關
+		api.POST("/register", authHandler.Register)
+		api.POST("/login", authHandler.Login)
+
+		// 基本的健康檢查
+		api.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"status": "ok",
+			})
+		})
 	}
 
-	// 受保護的路由組，需要認證
-	protected := r.Group("/api")
-	protected.Use(middleware.AuthMiddleware()) // 使用認證中間件
+	// 需要驗證的路由
+	authorized := api.Group("/")
+	authorized.Use(middleware.AuthMiddleware())
 	{
-		// 房間相關路由
-		protected.POST("/rooms", roomHandler.CreateRoom)                         // 創建新房間
-		protected.GET("/rooms/:id", roomHandler.GetRoom)                         // 獲取特定房間信息
-		protected.POST("/rooms/:id/join", roomHandler.JoinRoom)                  // 加入特定房間
-		protected.POST("/rooms/:id/leave", roomHandler.LeaveRoom)                // 離開特定房間
-		protected.POST("/rooms/:id/start", roomHandler.StartDebate)              // 開始辯論
-		protected.POST("/rooms/:id/end", roomHandler.EndDebate)                  // 結束辯論
-		protected.GET("/rooms/:id/messages", roomHandler.GetDebateMessages)      //取得辯論訊息
-		protected.POST("/rooms/:id/next-round", roomHandler.NextRound)           //下一回合
-		protected.GET("/rooms/:id/remaining-time", roomHandler.GetRemainingTime) //取得當前回合剩餘時間
-		protected.POST("/rooms/:id/spectators", roomHandler.AddSpectator)        //加入觀眾
-		protected.DELETE("/rooms/:id/spectators", roomHandler.RemoveSpectator)   //離開觀眾
-		// WebSocket 路由
-		protected.GET("/ws", wsHandler.HandleWebSocket) // 處理 WebSocket 連接
+		// 辯論室相關
+		rooms := authorized.Group("/rooms")
+		{
+			// 基本操作
+			rooms.GET("", roomHandler.ListRooms)   // 獲取房間列表
+			rooms.POST("", roomHandler.CreateRoom) // 創建房間
+			rooms.GET("/:id", roomHandler.GetRoom) // 獲取房間信息
 
+			// 房間參與
+			rooms.POST("/:id/join", roomHandler.JoinRoom)   // 加入房間
+			rooms.POST("/:id/leave", roomHandler.LeaveRoom) // 離開房間
+
+			// WebSocket 連接（移到房間路由下）
+			rooms.GET("/:id/ws", wsHandler.HandleWebSocket) // WebSocket 連接點
+		}
 	}
 }

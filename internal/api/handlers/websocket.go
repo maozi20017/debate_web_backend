@@ -1,93 +1,75 @@
 package handlers
 
 import (
+	"debate_web/internal/service"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-
-	"debate_web/internal/service"
 )
 
-// 定義 WebSocket 升級器
+// WebSocketHandler 處理 WebSocket 連接
+type WebSocketHandler struct {
+	wsService   *service.WebSocketService
+	roomService *service.RoomService
+}
+
+// 設定 WebSocket 升級器
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 注意：在生產環境中，應該檢查 origin
+		// 正式環境應該要檢查 origin
+		return true
 	},
 }
 
-// WebSocketHandler 處理 WebSocket 連接
-type WebSocketHandler struct {
-	wsManager   *service.WebSocketManager
-	roomService *service.RoomService
-}
-
-// NewWebSocketHandler 創建一個新的 WebSocketHandler 實例
-func NewWebSocketHandler(wsManager *service.WebSocketManager, roomService *service.RoomService) *WebSocketHandler {
+// NewWebSocketHandler 創建新的 WebSocket 處理器
+func NewWebSocketHandler(wsService *service.WebSocketService, roomService *service.RoomService) *WebSocketHandler {
 	return &WebSocketHandler{
-		wsManager:   wsManager,
+		wsService:   wsService,
 		roomService: roomService,
 	}
 }
 
 // HandleWebSocket 處理 WebSocket 連接請求
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
-	// 升級 HTTP 連接為 WebSocket 連接
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	// 從 URL 獲取房間 ID
+	roomID, err := strconv.ParseUint(c.Query("room_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "升級WebSocket失敗"})
-		return
-	}
-	defer conn.Close()
-
-	// 解析房間 ID
-	roomID, err := strconv.ParseUint(c.Query("room_id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "錯誤的房間ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的房間ID"})
 		return
 	}
 
-	// 從上下文中獲取用戶 ID
+	// 從 context 獲取用戶 ID（經過身份驗證中間件設置）
 	userID, exists := c.Get("userID")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授權的訪問"})
 		return
 	}
-	userIDUint := userID.(uint)
 
-	// 確定用戶在房間中的角色
-	role, err := h.determineUserRole(h.roomService, uint(roomID), userIDUint)
+	// 檢查用戶是否在房間中
+	role, err := h.checkUserInRoom(uint(roomID), userID.(uint))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "無法確定用戶角色"})
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
-	if role == "unknown" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "用戶未加入此房間"})
+	// 升級 HTTP 連接為 WebSocket
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
 		return
 	}
 
-	// 創建客戶端
-	client := &service.Client{
-		Conn:   conn,
-		UserID: userIDUint,
-		RoomID: uint(roomID),
-		Role:   role,
-	}
-
-	// 處理客戶端連接
-	h.wsManager.HandleClient(client)
-
-	// 通知房間有新用戶加入
-	h.wsManager.BroadcastSystemMessage(uint(roomID), "New user joined: "+role)
+	// 開始處理 WebSocket 連接
+	h.wsService.HandleConnection(conn, uint(roomID), userID.(uint), role)
 }
 
-// determineUserRole 確定用戶在房間中的角色
-func (h *WebSocketHandler) determineUserRole(roomService *service.RoomService, roomID, userID uint) (string, error) {
-	room, err := roomService.GetRoom(roomID)
+// checkUserInRoom 檢查用戶是否在房間中並返回其角色
+func (h *WebSocketHandler) checkUserInRoom(roomID, userID uint) (string, error) {
+	room, err := h.roomService.GetRoom(roomID)
 	if err != nil {
 		return "", err
 	}
@@ -98,12 +80,12 @@ func (h *WebSocketHandler) determineUserRole(roomService *service.RoomService, r
 	case room.OpponentID:
 		return "opponent", nil
 	default:
-		// 檢查是否為觀眾
+		// 檢查是否為觀眾（如果系統支持觀眾功能的話）
 		for _, spectatorID := range room.Spectators {
 			if spectatorID == userID {
 				return "spectator", nil
 			}
 		}
-		return "unknown", nil
+		return "", errors.New("用戶不在此房間中")
 	}
 }

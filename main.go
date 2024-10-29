@@ -14,30 +14,24 @@ import (
 )
 
 func main() {
-	// 載入應用程式配置
-	// 從配置文件中讀取設置，如數據庫連接信息和服務器地址等
+	// 載入配置
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("載入config失敗: %v", err)
 	}
 
-	// 初始化資料庫連接
-	// 使用配置中的信息建立到 PostgreSQL 數據庫的連接
+	// 初始化數據庫連接
 	db, err := storage.NewPostgresDB(cfg.DB.Host, cfg.DB.User, cfg.DB.Password, cfg.DB.Name, cfg.DB.Port)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	// 確保在程序結束時關閉數據庫連接
 	defer db.Close()
 
-	// 自動遷移資料庫結構
-	// 根據定義的模型自動創建或更新數據庫表結構
-	// 這裡遷移 User 和 Room 兩個模型
-	if err := db.AutoMigrate(&models.User{}, &models.Room{}); err != nil {
+	// 自動遷移數據庫結構
+	if err := db.AutoMigrate(&models.User{}, &models.Room{}, &models.Message{}); err != nil {
 		log.Fatalf("Failed to auto migrate database: %v", err)
 	}
 
-	// 初始化服務
 	// 初始化 repositories
 	repos := repository.NewRepositories(db)
 
@@ -45,12 +39,11 @@ func main() {
 	services := service.NewServices(repos)
 
 	// 設置 Gin 路由
-	// 創建一個默認的 Gin 路由器並設置路由
 	r := gin.Default()
+
 	api.SetupRoutes(r, services)
 
-	// 啟動伺服器
-	// 使用配置中指定的地址啟動 HTTP 服務器
+	// 啟動服務器
 	if err := r.Run(cfg.Server.Address); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
