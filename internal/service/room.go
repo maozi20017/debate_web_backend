@@ -93,13 +93,18 @@ func (s *RoomService) LeaveRoom(roomID, userID uint) error {
 	// 更新房間狀態
 	if room.ProponentID == userID {
 		room.ProponentID = 0
-	} else {
+	} else if room.OpponentID == userID {
 		room.OpponentID = 0
 	}
 
-	// 如果沒有人在房間中，將狀態改為等待中
-	if room.ProponentID == 0 && room.OpponentID == 0 {
-		room.Status = models.RoomStatusWaiting
+	// 如果其中一方離開房間，將更改狀態
+	if room.ProponentID == 0 || room.OpponentID == 0 {
+		//如果還沒開始就轉回等待中，如果開始了就改成已結束
+		if room.Status == models.RoomStatusReady {
+			room.Status = models.RoomStatusWaiting
+		} else if room.Status == models.RoomStatusOngoing {
+			room.Status = models.RoomStatusFinished
+		}
 	}
 
 	// 保存更改
@@ -116,4 +121,26 @@ func (s *RoomService) LeaveRoom(roomID, userID uint) error {
 // ListRooms 獲取房間列表
 func (s *RoomService) ListRooms() ([]models.Room, error) {
 	return s.repo.FindAll()
+}
+
+// checkUserInRoom 檢查用戶是否在房間中並返回其角色
+func (h *RoomService) CheckUserInRoom(roomID, userID uint) (string, error) {
+	room, err := h.GetRoom(roomID)
+	if err != nil {
+		return "", err
+	}
+
+	switch userID {
+	case room.ProponentID:
+		return "proponent", nil
+	case room.OpponentID:
+		return "opponent", nil
+	default:
+		for _, spectatorID := range room.Spectators {
+			if spectatorID == userID {
+				return "spectator", nil
+			}
+		}
+		return "", errors.New("用戶不在此房間中")
+	}
 }

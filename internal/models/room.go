@@ -10,7 +10,7 @@ import (
 type Room struct {
 	gorm.Model
 	Name        string
-	Status      RoomStatus // "waiting", "ongoing", "finished"
+	Status      RoomStatus
 	ProponentID uint
 	OpponentID  uint
 	StartTime   time.Time

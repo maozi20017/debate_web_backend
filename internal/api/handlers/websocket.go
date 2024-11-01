@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"debate_web/internal/service"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -21,7 +20,6 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// 正式環境應該要檢查 origin
 		return true
 	},
 }
@@ -51,7 +49,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	// 檢查用戶是否在房間中
-	role, err := h.checkUserInRoom(uint(roomID), userID.(uint))
+	role, err := h.roomService.CheckUserInRoom(uint(roomID), userID.(uint))
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -65,27 +63,4 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
 	// 開始處理 WebSocket 連接
 	h.wsService.HandleConnection(conn, uint(roomID), userID.(uint), role)
-}
-
-// checkUserInRoom 檢查用戶是否在房間中並返回其角色
-func (h *WebSocketHandler) checkUserInRoom(roomID, userID uint) (string, error) {
-	room, err := h.roomService.GetRoom(roomID)
-	if err != nil {
-		return "", err
-	}
-
-	switch userID {
-	case room.ProponentID:
-		return "proponent", nil
-	case room.OpponentID:
-		return "opponent", nil
-	default:
-		// 檢查是否為觀眾（如果系統支持觀眾功能的話）
-		for _, spectatorID := range room.Spectators {
-			if spectatorID == userID {
-				return "spectator", nil
-			}
-		}
-		return "", errors.New("用戶不在此房間中")
-	}
 }
