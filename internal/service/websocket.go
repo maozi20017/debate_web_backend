@@ -1,13 +1,12 @@
 package service
 
 import (
+	"debate_web/internal/repository/models"
 	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
-
-	"debate_web/internal/models"
 
 	"github.com/gorilla/websocket"
 )

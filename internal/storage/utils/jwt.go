@@ -6,7 +6,7 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-var jwtSecret = []byte("your_jwt_secret") // 在實際應用中，這應該是一個環境變量
+var jwtSecret = []byte("test")
 
 type Claims struct {
 	UserID uint   `json:"user_id"`

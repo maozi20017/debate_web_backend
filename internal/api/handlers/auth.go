@@ -1,13 +1,12 @@
 package handlers
 
 import (
+	"debate_web/internal/repository/models"
+	"debate_web/internal/service"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-
-	"debate_web/internal/models"
-	"debate_web/internal/service"
 )
 
 // AuthHandler 處理認證相關的請求

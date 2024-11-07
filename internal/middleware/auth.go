@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"debate_web/internal/utils"
+	"debate_web/internal/storage/utils"
 	"net/http"
 	"strings"
 

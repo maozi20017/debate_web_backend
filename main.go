@@ -7,8 +7,8 @@ import (
 
 	"debate_web/internal/api"
 	"debate_web/internal/config"
-	"debate_web/internal/models"
 	"debate_web/internal/repository"
+	"debate_web/internal/repository/models"
 	"debate_web/internal/service"
 	"debate_web/internal/storage"
 )

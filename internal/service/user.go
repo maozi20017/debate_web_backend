@@ -1,8 +1,8 @@
 package service
 
 import (
-	"debate_web/internal/models"
 	"debate_web/internal/repository"
+	"debate_web/internal/repository/models"
 	"debate_web/internal/utils"
 	"errors"
 
